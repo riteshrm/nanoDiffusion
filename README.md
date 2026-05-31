@@ -39,6 +39,45 @@ The blog covers:
 * DDPM sampling
 * DDIM deterministic sampling
 
+## Data
+
+Download the dataset (Hugging Face) into `butterflies/`:
+
+```python
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="riteshrm/butterflies", repo_type="dataset", local_dir="butterflies"
+)
+```
+
+The training scripts use `torchvision.datasets.ImageFolder`, so `butterflies/` should be laid out like:
+
+```
+butterflies/
+  class_0/
+  class_1/
+  ...
+```
+## Usage
+
+Train and Sample:
+
+```bash
+python ddpm.py
+# or
+python ddim.py
+```
+
+Note: the scripts currently assume `NUM_CLASSES = 5` and assert it matches the number of folders found under `butterflies/`.
+
+During training, the script periodically:
+
+- Saves sample grids as `sample_epoch_*.png`
+- Saves checkpoints as `dit_conditional_epoch_*.pth`
+
+Most hyperparameters (image size, model size, batch size, number of steps, etc.) are defined at the top of each script.
+
 ## Credits
 
 The DiT backbone implementation in `model.py` is adapted from:
