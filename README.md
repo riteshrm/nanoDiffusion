@@ -76,6 +76,18 @@ During training, the script periodically:
 - Saves sample grids as `sample_epoch_*.png`
 - Saves checkpoints as `dit_conditional_epoch_*.pth`
 
+## Training Progress
+
+The GIFs below show generated samples transitioning from epoch 0 through the end of training.
+
+### DDPM
+
+![DDPM sample progression](ddpm.gif)
+
+### DDIM
+
+![DDIM sample progression](ddim.gif)
+
 Most hyperparameters (image size, model size, batch size, number of steps, etc.) are defined at the top of each script.
 
 ## Credits
@@ -85,4 +97,3 @@ The DiT backbone implementation in `model.py` is adapted from:
 * https://github.com/sayakpaul/nanoDiT
 
 The DDPM and DDIM implementations were written from scratch with a focus on minimalism and readability.
-
