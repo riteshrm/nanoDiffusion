@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import bitsandbytes as bnb
 from model import NanoDiT
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
@@ -24,8 +23,7 @@ LEARNING_RATE = 1e-4
 BATCH_SIZE = 64
 EPOCHS = 2000
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-COMPILE = True
-AMP_DTYPE = torch.bfloat16 # automatic mixed-precision unless you wanna touch grass
+AMP_DTYPE = torch.bfloat16  # Automatic mixed precision dtype.
 # Sampling parameters
 SAMPLE_INTERVAL = 100  # Sample every N epochs
 NUM_SAMPLES_PER_CLASS = 4  # Number of images to sample per class during evaluation
@@ -77,7 +75,7 @@ class Diffusion(nn.Module):
 
     @torch.no_grad()
     def sample(self, target_classes_list, num_samples_per_cls=1):
-        """Generate images for specified target classes using CFG."""
+        """Generate images for specified target classes."""
         self.eps_theta.eval()
         num_target_cls = len(target_classes_list)
         total_images_to_sample = num_samples_per_cls * num_target_cls
@@ -115,7 +113,7 @@ class Diffusion(nn.Module):
         return torch.nn.functional.mse_loss(eps, pred_eps)
 
 diffusion = Diffusion(beta_start=0.0001, beta_end=0.02, timesteps=1000).to(DEVICE)
-optimizer = bnb.optim.Adam8bit(diffusion.eps_theta.parameters(), lr=LEARNING_RATE)
+optimizer = torch.optim.Adam(diffusion.eps_theta.parameters(), lr=LEARNING_RATE)
 scaler = torch.GradScaler() if AMP_DTYPE is not None else None
 amp_context = (
     torch.autocast(device_type=torch.device(DEVICE).type, dtype=AMP_DTYPE) 

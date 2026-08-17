@@ -102,6 +102,15 @@ butterflies/
   ...
 ```
 
+Important: `ddpm.py` and `ddim.py` currently use a Colab-style `main_folder`:
+
+```python
+main_folder = "/content/drive/MyDrive/diff"
+DATA_DIR = f"{main_folder}/butterflies"
+```
+
+Before running locally, update `main_folder` and `DATA_DIR` for your machine. The scripts also write samples and checkpoints under `ddpm/` and `ddim/`, so make sure those output folders exist under your chosen `main_folder`.
+
 ## Usage
 
 Train and sample:
