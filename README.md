@@ -137,11 +137,6 @@ The blog covers:
 * DDPM sampling
 * DDIM deterministic sampling
 
-Papers:
-
-* [DDPM: Denoising Diffusion Probabilistic Models](https://arxiv.org/abs/2006.11239)
-* [DDIM: Denoising Diffusion Implicit Models](https://arxiv.org/abs/2010.02502)
-
 ## Credits
 
 The DiT backbone implementation in `model.py` is adapted from:
