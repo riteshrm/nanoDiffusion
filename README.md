@@ -80,13 +80,13 @@ During training, the script periodically:
 
 The GIFs below show generated samples transitioning from epoch 0 through the end of training.
 
-### DDPM
+<h3 align="center">DDPM</h3>
 
 <p align="center">
   <img src="ddpm.gif" alt="DDPM sample progression">
 </p>
 
-### DDIM
+<h3 align="center">DDIM</h3>
 
 <p align="center">
   <img src="ddim.gif" alt="DDIM sample progression">
