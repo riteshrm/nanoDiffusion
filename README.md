@@ -82,11 +82,15 @@ The GIFs below show generated samples transitioning from epoch 0 through the end
 
 ### DDPM
 
-![DDPM sample progression](ddpm.gif)
+<p align="center">
+  <img src="ddpm.gif" alt="DDPM sample progression">
+</p>
 
 ### DDIM
 
-![DDIM sample progression](ddim.gif)
+<p align="center">
+  <img src="ddim.gif" alt="DDIM sample progression">
+</p>
 
 Most hyperparameters (image size, model size, batch size, number of steps, etc.) are defined at the top of each script.
 

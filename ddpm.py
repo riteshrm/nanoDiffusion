@@ -1,38 +1,40 @@
-
 import torch
 import torch.nn as nn
-import torch.optim as optim
+import bitsandbytes as bnb
 from model import NanoDiT
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import torchvision
 from contextlib import nullcontext
 from tqdm import tqdm
+torch.set_float32_matmul_precision('high')
 
 # --- Hyperparameters ---
-NUM_CLASSES = 5  
+NUM_CLASSES = 5
 IMG_SIZE = 64
-IMG_CHANNELS = 3 
+IMG_CHANNELS = 3
 # DiT specific parameters
-LATENT_DIM = 768
+LATENT_DIM = 512
 PATCH_SIZE = 2
 MODEL_DEPTH = 12
-MODEL_HEADS = 4
+MODEL_HEADS = 8
 
 # Training parameters
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 2
-EPOCHS = 600
+BATCH_SIZE = 64
+EPOCHS = 2000
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPILE = True
 AMP_DTYPE = torch.bfloat16 # automatic mixed-precision unless you wanna touch grass
 # Sampling parameters
-SAMPLE_INTERVAL = 10  # Sample every N epochs
-NUM_SAMPLES_PER_CLASS = 2  # Number of images to sample per class during evaluation
-CFG_SCALE = 5.0
+SAMPLE_INTERVAL = 100  # Sample every N epochs
+NUM_SAMPLES_PER_CLASS = 4  # Number of images to sample per class during evaluation
+
+NUM_STEPS=1000
 # Others
-CHECKPOINT_SAVE_INTERVAL = 10
-DATA_DIR = "butterflies" # Directory where the dataset is stored.
+CHECKPOINT_SAVE_INTERVAL = 100
+main_folder = "/content/drive/MyDrive/diff"
+DATA_DIR = f"{main_folder}/butterflies" # Directory where the dataset is stored.
 
 class Diffusion(nn.Module):
     def __init__(self, beta_start, beta_end, timesteps):
@@ -59,20 +61,20 @@ class Diffusion(nn.Module):
         alphabar_t = self.alphabar_t[t].view(-1, 1, 1, 1)
         x_t = torch.sqrt(alphabar_t)*x_0 + torch.sqrt(1 - alphabar_t)*eps
         return x_t
-    
+
     def reverse_process(self, x_t, t, y, eps=None):
         tin = torch.tensor([t] * x_t.shape[0]).to(x_t.device, dtype=x_t.dtype)
         pred_eps = self.eps_theta(x_t, tin/self.timesteps, y)
         alphabar_t = self.alphabar_t[t].view(-1, 1, 1, 1)
         alpha_t = self.alpha_t[t].view(-1, 1, 1, 1)
         beta_t = self.beta_t[t].view(-1, 1, 1, 1)
-        
+
         if eps is None:
             x_prevt = (1/torch.sqrt(alpha_t))*(x_t - (beta_t/torch.sqrt(1 - alphabar_t))*pred_eps)
         else:
             x_prevt = (1/torch.sqrt(alpha_t))*(x_t - (beta_t/torch.sqrt(1 - alphabar_t))*pred_eps) + torch.sqrt(beta_t)*eps
         return x_prevt
-    
+
     @torch.no_grad()
     def sample(self, target_classes_list, num_samples_per_cls=1):
         """Generate images for specified target classes using CFG."""
@@ -90,31 +92,30 @@ class Diffusion(nn.Module):
         conditional_labels = torch.tensor(sample_cls_labels_list, device=DEVICE).long()
 
         y = conditional_labels
-        
-        
-        for t in range(self.timesteps-1, -1, -1):
+
+
+        for t in tqdm(range(self.timesteps-1, -1, -1)):
             if t==0:
                 x_t = self.reverse_process(x_t, t, y)
             else:
                 eps = torch.randn((total_images_to_sample, IMG_CHANNELS, IMG_SIZE, IMG_SIZE), device=DEVICE)
                 x_t = self.reverse_process(x_t, t, y, eps)
-        
+  
         images = (x_t + 1) / 2.0  # De-normalize from [-1, 1] to [0, 1]
         images = torch.clamp(images, 0.0, 1.0)
 
         self.eps_theta.train() # Set model to train.
         return images, conditional_labels
-    
+
     def loss(self, x_0, y):
         t = torch.randint(0, self.timesteps, (x_0.shape[0],)).to(DEVICE)
         eps = torch.randn_like(x_0)
         x_t = self.forward_process(x_0, eps, t)
         pred_eps = self.eps_theta(x_t, t/self.timesteps, y)
         return torch.nn.functional.mse_loss(eps, pred_eps)
-    
-diffusion = Diffusion(beta_start=0.0001, beta_end=0.02, timesteps=1000).to(DEVICE)
 
-optimizer = optim.AdamW(diffusion.eps_theta.parameters(), lr=LEARNING_RATE)
+diffusion = Diffusion(beta_start=0.0001, beta_end=0.02, timesteps=1000).to(DEVICE)
+optimizer = bnb.optim.Adam8bit(diffusion.eps_theta.parameters(), lr=LEARNING_RATE)
 scaler = torch.GradScaler() if AMP_DTYPE is not None else None
 amp_context = (
     torch.autocast(device_type=torch.device(DEVICE).type, dtype=AMP_DTYPE) 
@@ -151,9 +152,10 @@ print(f"Training on {DEVICE}")
 print(f"Using custom model: {type(diffusion.eps_theta).__name__}")
 print(f"Model Parameters: {sum(p.numel() for p in diffusion.eps_theta.parameters() if p.requires_grad)}")
 
+
 for epoch in range(EPOCHS):
     diffusion.eps_theta.train()
-    
+
     progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{EPOCHS}")
 
     for step, (real_images, class_ids) in enumerate(progress_bar):
@@ -184,12 +186,19 @@ for epoch in range(EPOCHS):
         # Save as a grid
         if generated_sample_images.nelement() > 0:  # Check if any images were generated
             grid = torchvision.utils.make_grid(generated_sample_images, nrow=NUM_SAMPLES_PER_CLASS)
-            torchvision.utils.save_image(grid, f"sample_epoch_{epoch + 1}.png")
+            torchvision.utils.save_image(grid, f"{main_folder}/ddpm/sample_epoch_{epoch + 1}.png")
             print(f"Saved sample images to sample_epoch_{epoch + 1}.png")
         print("-" * 30)
 
     # Optional: Save model checkpoint
     if (epoch + 1) % CHECKPOINT_SAVE_INTERVAL == 0:
-        torch.save(diffusion.eps_theta.state_dict(), f"dit_conditional_epoch_{epoch + 1}.pth")
+        checkpoint = {
+            "epoch": epoch,
+            "model_state_dict": diffusion.eps_theta.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "loss": loss,
+        }
+
+        torch.save(checkpoint, f"{main_folder}/ddpm/checkpoint_epoch_{epoch + 1}.pth")
 
 print("Training finished.")

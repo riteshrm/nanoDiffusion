@@ -1,40 +1,41 @@
-
+import os
 import torch
 import torch.nn as nn
-import torch.optim as optim
+import bitsandbytes as bnb
 from model import NanoDiT
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import torchvision
 from contextlib import nullcontext
 from tqdm import tqdm
-
+torch.set_float32_matmul_precision('high')
 
 # --- Hyperparameters ---
-NUM_CLASSES = 5  
+NUM_CLASSES = 5
 IMG_SIZE = 64
-IMG_CHANNELS = 3 
+IMG_CHANNELS = 3
 # DiT specific parameters
-LATENT_DIM = 768
+LATENT_DIM = 512
 PATCH_SIZE = 2
 MODEL_DEPTH = 12
-MODEL_HEADS = 4
-# Diffusion process parameters
-NUM_ODE_STEPS = 150
+MODEL_HEADS = 8
+
 # Training parameters
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 1
-EPOCHS = 600
+BATCH_SIZE = 64
+EPOCHS = 2000
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 COMPILE = True
 AMP_DTYPE = torch.bfloat16 # automatic mixed-precision unless you wanna touch grass
 # Sampling parameters
-SAMPLE_INTERVAL = 1  # Sample every N epochs
-NUM_SAMPLES_PER_CLASS = 2  # Number of images to sample per class during evaluation
-CFG_SCALE = 5.0
+SAMPLE_INTERVAL = 100  # Sample every N epochs
+NUM_SAMPLES_PER_CLASS = 4  # Number of images to sample per class during evaluation
+
+NUM_STEPS=50
 # Others
-CHECKPOINT_SAVE_INTERVAL = 25
-DATA_DIR = "butterflies" # Directory where the dataset is stored.
+CHECKPOINT_SAVE_INTERVAL = 100
+main_folder = "/content/drive/MyDrive/diff"
+DATA_DIR = f"{main_folder}/butterflies" # Directory where the dataset is stored.
 
 class Diffusion(nn.Module):
     def __init__(self, beta_start, beta_end, timesteps):
@@ -82,7 +83,7 @@ class Diffusion(nn.Module):
 
         steps = torch.linspace(self.timesteps-1, 0, num_steps, dtype=torch.int, device=DEVICE)
 
-        for i in range(num_steps):
+        for i in tqdm(range(num_steps)):
             t = steps[i].unsqueeze(0)
             alphabar_t = self.alphabar_t[t].view(-1, 1, 1, 1)
             pred_eps = self.eps_theta(x_t, t/self.timesteps, y)
@@ -113,7 +114,7 @@ class Diffusion(nn.Module):
 
 diffusion = Diffusion(beta_start=0.0001, beta_end=0.02, timesteps=1000).to(DEVICE)
 
-optimizer = optim.AdamW(diffusion.eps_theta.parameters(), lr=LEARNING_RATE)
+optimizer = bnb.optim.Adam8bit(diffusion.eps_theta.parameters(), lr=LEARNING_RATE)
 scaler = torch.GradScaler() if AMP_DTYPE is not None else None
 amp_context = (
     torch.autocast(device_type=torch.device(DEVICE).type, dtype=AMP_DTYPE) 
@@ -150,6 +151,8 @@ print(f"Training on {DEVICE}")
 print(f"Using custom model: {type(diffusion.eps_theta).__name__}")
 print(f"Model Parameters: {sum(p.numel() for p in diffusion.eps_theta.parameters() if p.requires_grad)}")
 
+
+
 for epoch in range(EPOCHS):
     diffusion.eps_theta.train()
     
@@ -174,23 +177,28 @@ for epoch in range(EPOCHS):
 
         # Update tqdm progress bar with loss
         progress_bar.set_postfix(loss=f"{loss.item():.4f}")
-        classes_to_sample_list = list(range(min(NUM_CLASSES, 5)))
-        generated_sample_images, _ = diffusion.sample(classes_to_sample_list, 5, num_samples_per_cls=NUM_SAMPLES_PER_CLASS)
 
     # --- Perform Sampling and Save Images (Intermediate Evaluation) ---
     if (epoch + 1) % SAMPLE_INTERVAL == 0 or epoch == EPOCHS - 1:
         print(f"\nSampling images at epoch {epoch + 1}...")
         classes_to_sample_list = list(range(min(NUM_CLASSES, 5)))
-        generated_sample_images, _ = diffusion.sample(classes_to_sample_list, 50, num_samples_per_cls=NUM_SAMPLES_PER_CLASS)
+        generated_sample_images, _ = diffusion.sample(classes_to_sample_list, NUM_STEPS, num_samples_per_cls=NUM_SAMPLES_PER_CLASS)
         # Save as a grid
         if generated_sample_images.nelement() > 0:  # Check if any images were generated
             grid = torchvision.utils.make_grid(generated_sample_images, nrow=NUM_SAMPLES_PER_CLASS)
-            torchvision.utils.save_image(grid, f"sample_epoch_{epoch + 1}.png")
+            torchvision.utils.save_image(grid, f"{main_folder}/ddim/sample_epoch_{epoch + 1}.png")
             print(f"Saved sample images to sample_epoch_{epoch + 1}.png")
         print("-" * 30)
-
-    # Optional: Save model checkpoint
-    if (epoch + 1) % CHECKPOINT_SAVE_INTERVAL == 0:
-        torch.save(diffusion.eps_theta.state_dict(), f"dit_conditional_epoch_{epoch + 1}.pth")
-
+        
+        # Optional: Save model checkpoint
+        if (epoch + 1) % CHECKPOINT_SAVE_INTERVAL == 0:
+            checkpoint = {
+                "epoch": epoch,
+                "model_state_dict": diffusion.eps_theta.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "loss": loss,
+            }
+    
+            torch.save(checkpoint, f"{main_folder}/ddim/checkpoint_epoch_{epoch + 1}.pth")
+        
 print("Training finished.")
